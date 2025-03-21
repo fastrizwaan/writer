@@ -39,7 +39,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_align_justify = False
         self.current_font = "Sans"
         self.current_font_size = "12"
-        self.current_line_spacing = "1.0"
+        self.current_line_spacing = "1.5"
         
         # Document state
         self.current_file = None
