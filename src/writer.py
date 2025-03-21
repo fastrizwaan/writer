@@ -39,6 +39,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_align_justify = False
         self.current_font = "Sans"
         self.current_font_size = "12"
+        self.current_line_spacing = "1.0"
         
         # Document state
         self.current_file = None
@@ -227,6 +228,15 @@ class EditorWindow(Adw.ApplicationWindow):
         self.strikethrough_btn.connect("toggled", self.on_strikethrough_toggled)
         text_format_group.append(self.strikethrough_btn)
 
+        # Line spacing dropdown - Added
+        line_spacing_options = ["1.0", "1.15", "1.5", "2.0", "2.5", "3.0"]
+        line_spacing_store = Gtk.StringList(strings=line_spacing_options)
+        self.line_spacing_dropdown = Gtk.DropDown(model=line_spacing_store)
+        self.line_spacing_dropdown.set_selected(0)  # Default to 1.0
+        self.line_spacing_handler = self.line_spacing_dropdown.connect("notify::selected", self.on_line_spacing_changed)
+        self.line_spacing_dropdown.add_css_class("flat")
+        text_format_group.append(self.line_spacing_dropdown)
+        
         self.align_left_btn = Gtk.ToggleButton(icon_name="format-justify-left")
         self.align_left_btn.add_css_class("flat")
         self.align_left_btn.connect("toggled", self.on_align_left)
@@ -327,19 +337,20 @@ class EditorWindow(Adw.ApplicationWindow):
                                 strikethrough: document.queryCommandState('strikethrough'),
                                 formatBlock: document.queryCommandValue('formatBlock') || 'p',
                                 fontName: style.fontFamily.split(',')[0].replace(/['"]/g, ''),
-                                fontSize: style.fontSize, // Returns e.g., "16px"
+                                fontSize: style.fontSize,
                                 insertUnorderedList: document.queryCommandState('insertUnorderedList'),
                                 insertOrderedList: document.queryCommandState('insertOrderedList'),
                                 justifyLeft: document.queryCommandState('justifyLeft'),
                                 justifyCenter: document.queryCommandState('justifyCenter'),
                                 justifyRight: document.queryCommandState('justifyRight'),
-                                justifyFull: document.queryCommandState('justifyFull')
+                                justifyFull: document.queryCommandState('justifyFull'),
+                                lineHeight: style.lineHeight === 'normal' ? '1.0' : (parseFloat(style.lineHeight) / parseFloat(style.fontSize)).toFixed(2)
                             };
                             window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
                         }
                     }, 100);
                     document.addEventListener('selectionchange', notifySelectionChange);
-                    notifySelectionChange(); // Initial state
+                    notifySelectionChange();
                 })();
             """, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
@@ -417,23 +428,38 @@ class EditorWindow(Adw.ApplicationWindow):
             font_size_str = state.get('fontSize', '12pt')
             if font_size_str.endswith('px'):
                 font_size_px = float(font_size_str[:-2])
-                font_size_pt = str(int(font_size_px / 1.333))  # Approximate conversion
+                font_size_pt = str(int(font_size_px / 1.333))
             elif font_size_str.endswith('pt'):
                 font_size_pt = font_size_str[:-2]
             else:
-                font_size_pt = '12'  # Default
-
+                font_size_pt = '12'
             size_store = self.size_dropdown.get_model()
             available_sizes = [size_store.get_string(i) for i in range(size_store.get_n_items())]
-            selected_size_index = 3  # Default to 12
+            selected_size_index = 3
             if font_size_pt in available_sizes:
                 selected_size_index = available_sizes.index(font_size_pt)
             self.current_font_size = available_sizes[selected_size_index]
             self.size_dropdown.handler_block(self.size_dropdown_handler)
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
+
+            # Line spacing - Added
+            detected_line_spacing = state.get('lineHeight', '1.0')
+            line_spacing_store = self.line_spacing_dropdown.get_model()
+            available_spacings = [line_spacing_store.get_string(i) for i in range(line_spacing_store.get_n_items())]
+            selected_spacing_index = 0
+            detected_float = float(detected_line_spacing)
+            min_diff = float('inf')
+            for i, spacing in enumerate(available_spacings):
+                diff = abs(float(spacing) - detected_float)
+                if diff < min_diff:
+                    min_diff = diff
+                    selected_spacing_index = i
+            self.current_line_spacing = available_spacings[selected_spacing_index]
+            self.line_spacing_dropdown.handler_block(self.line_spacing_handler)
+            self.line_spacing_dropdown.set_selected(selected_spacing_index)
+            self.line_spacing_dropdown.handler_unblock(self.line_spacing_handler)
         else:
-            # When called without state, update dropdowns with current values
             font_store = self.font_dropdown.get_model()
             selected_font_index = 0
             for i in range(font_store.get_n_items()):
@@ -445,7 +471,7 @@ class EditorWindow(Adw.ApplicationWindow):
             self.font_dropdown.handler_unblock(self.font_dropdown_handler)
 
             size_store = self.size_dropdown.get_model()
-            selected_size_index = 3  # Default to 12
+            selected_size_index = 3
             for i in range(size_store.get_n_items()):
                 if size_store.get_string(i) == self.current_font_size:
                     selected_size_index = i
@@ -453,6 +479,17 @@ class EditorWindow(Adw.ApplicationWindow):
             self.size_dropdown.handler_block(self.size_dropdown_handler)
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
+
+            # Line spacing - Added
+            line_spacing_store = self.line_spacing_dropdown.get_model()
+            selected_spacing_index = 0
+            for i in range(line_spacing_store.get_n_items()):
+                if line_spacing_store.get_string(i) == self.current_line_spacing:
+                    selected_spacing_index = i
+                    break
+            self.line_spacing_dropdown.handler_block(self.line_spacing_handler)
+            self.line_spacing_dropdown.set_selected(selected_spacing_index)
+            self.line_spacing_dropdown.handler_unblock(self.line_spacing_handler)
 
     def exec_js(self, script):
         self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
@@ -711,6 +748,12 @@ class EditorWindow(Adw.ApplicationWindow):
             elif keyval == Gdk.KEY_M:
                 self.on_indent_less(None)
                 return True
+            elif keyval == Gdk.KEY_H:  # Added Ctrl+Shift+H for line spacing
+                current_index = self.line_spacing_dropdown.get_selected()
+                next_index = (current_index + 1) % self.line_spacing_dropdown.get_model().get_n_items()
+                self.line_spacing_dropdown.set_selected(next_index)
+                self.on_line_spacing_changed(self.line_spacing_dropdown)
+                return True  
         elif not ctrl:
             if keyval == Gdk.KEY_F12 and not shift:
                 self.on_number_list_toggled(self.number_btn)
@@ -720,6 +763,92 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
         return False
 
+    def on_line_spacing_changed(self, dropdown, *args):
+        if item := dropdown.get_selected_item():
+            self.current_line_spacing = item.get_string()
+            script = f"""
+                (function() {{
+                    let sel = window.getSelection();
+                    let range = sel.rangeCount > 0 ? sel.getRangeAt(0) : document.createRange();
+                    let node = range.startContainer || document.body;
+                    let originalOffset = range.startOffset;
+
+                    // Store cursor position relative to the start container
+                    let cursorNode = range.startContainer;
+                    let cursorOffset = range.startOffset;
+
+                    // If node is text, get its parent
+                    if (node.nodeType === Node.TEXT_NODE) {{
+                        node = node.parentElement;
+                    }}
+
+                    // Find the nearest block-level parent (p, div, h1-h6)
+                    let block = node.closest('p, div, h1, h2, h3, h4, h5, h6');
+
+                    if (!block || block === document.body) {{
+                        // If no block found or in body, wrap loose text or create new paragraph
+                        let newParagraph = document.createElement('p');
+                        newParagraph.style.lineHeight = '{self.current_line_spacing}';
+
+                        if (node === document.body && sel.rangeCount > 0) {{
+                            // If cursor is in loose text in body
+                            let textNode = range.startContainer;
+                            if (textNode.nodeType === Node.TEXT_NODE) {{
+                                range.selectNode(textNode);
+                                range.surroundContents(newParagraph);
+                                // Restore cursor position after wrapping
+                                range.setStart(cursorNode, cursorOffset);
+                                range.setEnd(cursorNode, cursorOffset);
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                            }} else {{
+                                // Insert new paragraph at cursor position
+                                range.insertNode(newParagraph);
+                                range.setStart(newParagraph, 0);
+                                range.setEnd(newParagraph, 0);
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                            }}
+                        }} else if (node === document.body) {{
+                            // If no selection, insert at cursor
+                            range.insertNode(newParagraph);
+                            range.setStart(newParagraph, 0);
+                            range.setEnd(newParagraph, 0);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }}
+                    }} else {{
+                        // Apply to existing block
+                        block.style.lineHeight = '{self.current_line_spacing}';
+                        
+                        // Restore cursor position in the block
+                        if (sel.rangeCount > 0) {{
+                            range.setStart(cursorNode, cursorOffset);
+                            range.setEnd(cursorNode, cursorOffset);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }}
+                    }}
+
+                    // If cursor is between paragraphs, apply to previous paragraph
+                    if (!block && sel.isCollapsed && range.startContainer === document.body) {{
+                        let previousSibling = range.startContainer.childNodes[range.startOffset - 1];
+                        if (previousSibling && previousSibling.nodeName.match(/^(P|DIV|H[1-6])$/i)) {{
+                            previousSibling.style.lineHeight = '{self.current_line_spacing}';
+                            // Restore cursor position after previous sibling
+                            range.setStart(cursorNode, cursorOffset);
+                            range.setEnd(cursorNode, cursorOffset);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }}
+                    }}
+
+                    // Trigger content change notification
+                    window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                }})();
+            """
+            self.exec_js(script)
+            self.update_formatting_ui()
     def exec_js_with_result(self, js_code, callback):
         if hasattr(self.webview, 'run_javascript'):
             self.webview.run_javascript(js_code, None, callback, None)
